@@ -10,6 +10,7 @@ executors:
 
 jobs:
   serializeWorkflow:
+    executor: default
     description: "Can I start this workflow?"
     parameters:
       branch:
