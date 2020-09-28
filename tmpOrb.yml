@@ -1,0 +1,186 @@
+version: 2.1
+description: "SerializeWorkflow Orb"
+
+executors:
+  default:
+    description: "Default executor"
+    docker:
+    - image: alpine:latest
+    resource_class: small
+
+jobs:
+  serializeWorkflow:
+    description: "Can I start this workflow?"
+    parameters:
+      branch:
+        type: string
+        description: "Branch to block on"
+        default: ""
+      tag:
+        type: string
+        description: "Tag in commit message (ex: [tag]) to block on"
+        default: ""
+      action:
+        type: enum
+        description: "Cancel or wait"
+        enum: ["cancel", "wait"]
+        default: wait
+      timeout:
+        type: integer
+        description: "Timeout for wait action in seconds (default 3600)"
+        default: 3600
+    steps:
+    - checkout
+    - run:
+        name: Install bash, curl, jq, and git
+        command: |
+          apk --update upgrade
+          apk add bash curl jq git
+    - run:
+        name: Only run one instance of workflow at a time
+        command: |
+          #!/usr/bin/env bash
+          set -euo pipefail
+          should_run() {
+            if [[ "$branch" && "$CIRCLE_BRANCH" != "$branch" ]]; then
+              echo "Not on branch $branch. All clear, running workflow"
+              return 0
+            fi
+            if [[ "$tag" && "$commit_message" != *\[$tag\]* ]]; then
+              echo "No [$tag] commit tag found. All clear, running workflow"
+              return 0
+            fi
+            return 1
+          }
+          apicall() {
+            if [[ $# -gt 1 ]]; then
+              method="$2"
+            else
+              method=GET
+            fi
+            consecutive_failures=0
+            while true; do
+              response=$(curl --fail --silent --connect-timeout 5 --max-time 10 -X "$method" -H "Accept: application/json" "$1")
+              if [[ $? -ne 0 ]]; then
+                echo "CircleCI api call failed"
+                consecutive_failures=$(($consecutive_failures + 1))
+              else
+                break
+              fi
+              if [[ ${consecutive_failures} -gt 5 ]]; then
+                  echo "Failed $consecutive_failures consecutive attempts...giving up"
+                  exit 1
+              fi
+              echo "Retrying in 10 seconds..."
+              sleep 10
+            done
+            echo "$response"
+          }
+          branch="<< parameters.branch >>"
+          tag="<< parameters.tag >>"
+          commit_message=$(git log -1 --pretty=%B)
+          if should_run; then exit 0; fi
+          echo "Checking for running or on_hold workflows..."
+          # unset errexit so we can detect and handle temporary circleci api failures
+          set +e
+          # find a pipeline with at least one workflow (looking backwards)
+          # check workflows to see if they failed on this job; if so move on to previous pipeline
+          i=0
+          workflow_id=""
+          failed_workflow_id=""
+          canceled_workflow_id=""
+          other_workflow_id=""
+          my_workflow_name="$(apicall "https://circleci.com/api/v2/workflow/$CIRCLE_WORKFLOW_ID?circle-token=$CIRCLE_TOKEN" | jq ".name" | tr -d '"')"
+          pipelines="$(apicall "https://circleci.com/api/v2/project/bb/$CIRCLE_PROJECT_USERNAME/$CIRCLE_PROJECT_REPONAME/pipeline?circle-token=$CIRCLE_TOKEN")"
+          while [[ -z ${workflow_id} ]]; do
+            i=$(($i + 1))
+            pipeline_id=$(echo $pipelines | jq ".items[$i].id" | tr -d '"')
+            workflows=$(apicall "https://circleci.com/api/v2/pipeline/$pipeline_id/workflow?circle-token=$CIRCLE_TOKEN" | jq ".items[] | select(.name? == \"$my_workflow_name\")")
+            if [[ ! -z ${workflows} ]]; then
+              # check for an active workflow
+              workflow_id=$(echo $workflows | jq "select(.status | test(\"on_hold|running|failing\")) | .id" | tr -d '"')
+              if [[ ! -z ${workflow_id} ]]; then
+                # workflow is active
+                # continue if workflow is my own
+                if [[ ${workflow_id} == ${CIRCLE_WORKFLOW_ID} ]]; then
+                  workflow_id=""
+                  continue
+                fi
+                # check if job with this name is a later job, if so then continue (first job by job number is the one that runs, even if it starts later)
+                job_num=$(apicall "https://circleci.com/api/v2/workflow/$workflow_id/job?circle-token=$CIRCLE_TOKEN" | jq ".items[] | select(.name | test(\"$CIRCLE_JOB\")) | .job_number")
+                if [[ ${job_num} -gt ${CIRCLE_BUILD_NUM} ]]; then
+                  workflow_id=""
+                  continue
+                fi
+                # if not my workflow and not a later job; don't run
+                break
+              fi
+              # check for a failed workflow
+              failed_workflow_id=$(echo $workflows | jq "select(.status | test(\"failed\")) | .id" | tr -d '"')
+              if [[ ! -z ${failed_workflow_id} ]]; then
+                # check if failed job in workflow is this job
+                job_id=$(apicall "https://circleci.com/api/v2/workflow/$failed_workflow_id/job?circle-token=$CIRCLE_TOKEN" | jq ".items[] | select((.status | test(\"failed\")) and (.name | test(\"$CIRCLE_JOB\"))) | .id" | tr -d '"')
+                if [[ -z ${job_id} ]]; then
+                  # failed job is not this one; run
+                  break
+                else
+                  # failed job is this one; continue
+                  continue
+                fi
+              fi
+              # check for a canceled workflow
+              canceled_workflow_id=$(echo $workflows | jq "select(.status | test(\"canceled\")) | .id" | tr -d '"')
+              if [[ ! -z ${canceled_workflow_id} ]]; then
+                # check if canceled job in workflow is this job
+                job_id=$(apicall "https://circleci.com/api/v2/workflow/$canceled_workflow_id/job?circle-token=$CIRCLE_TOKEN" | jq ".items[] | select((.status | test(\"canceled\")) and (.name | test(\"$CIRCLE_JOB\"))) | .id" | tr -d '"')
+                if [[ -z ${job_id} ]]; then
+                  # canceled job is not this one; run
+                  break
+                else
+                  # canceled job is this one; continue
+                  continue
+                fi
+              fi
+              # check for all other statuses
+              other_workflow_id=$(echo $workflows | jq "select(.status | test(\"success|not_run|error|unauthorized\")) | .id" | tr -d '"')
+              if [[ ! -z ${other_workflow_id} ]]; then
+                # workflow is complete and not failed; run pipeline
+                break
+              else
+                # workflow has null status?
+                echo "Not sure what happened, here's the JSON for troubleshooting:"
+                echo "$workflows"
+              fi
+            fi
+          done
+          if [[ ! -z ${workflow_id} ]]; then
+            echo "Found active workflow:"
+            echo "$workflow_id"
+            if [[ "<< parameters.action >>" == "cancel" ]]; then
+              echo "Not running workflow"
+              apicall "https://circleci.com/api/v2/workflow/$CIRCLE_WORKFLOW_ID/cancel?circle-token=$CIRCLE_TOKEN" POST
+              sleep 30
+            elif [[ "<< parameters.action >>" == "wait" ]]; then
+              runtime=0
+              while true; do
+                echo "Retrying in 10 seconds..."
+                sleep 10
+                still_running=$(apicall "https://circleci.com/api/v2/workflow/$workflow_id?circle-token=$CIRCLE_TOKEN" | jq "select(.status | test(\"running|on_hold|failing\")) | .status" | tr -d '"')
+                if [[ -z ${still_running} ]]; then
+                  break
+                else
+                  echo "Still running, status is $still_running"
+                  runtime=$(($runtime + 10))
+                  if [[ "<< parameters.timeout >>" -le ${runtime} ]]; then
+                    echo "Timeout reached, canceling this workflow"
+                    apicall "https://circleci.com/api/v2/workflow/$CIRCLE_WORKFLOW_ID/cancel?circle-token=$CIRCLE_TOKEN" POST
+                    sleep 30
+                  fi
+                  continue
+                fi
+              done
+              echo "Done waiting, running workflow"
+            fi
+          else
+            echo "All clear, running workflow"
+          fi
