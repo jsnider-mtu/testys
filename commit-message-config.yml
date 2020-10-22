@@ -1,0 +1,51 @@
+version: 2.1
+
+orbs:
+  orb-tools: circleci/orb-tools@10.0.1
+  your-orb: parkmobileus/your-orb@<< pipeline.parameters.dev-orb-version >>
+
+parameters:
+  run-integration-tests:
+    type: boolean
+    default: false
+  dev-orb-version:
+    type: string
+    default: "dev:alpha"
+
+jobs:
+  integration-test:
+    executor: orb-tools/ubuntu
+    steps:
+    - checkout
+    - your-orb/your-orb-command
+
+workflows:
+  lint_validate_publish-dev:
+    unless: << pipeline.parameters.run-integration-tests >>
+    jobs:
+    - orb-tools/lint
+    - orb-tools/publish-dev:
+        orb-name: parkmobileus/your-orb
+        requires:
+        - orb-tools/lint
+    - orb-tools/trigger-integration-tests-workflow:
+        name: trigger-integration-dev
+        requires:
+        - orb-tools/publish-dev
+  integration-tests_deploy:
+    when: << pipeline.parameters.run-integration-tests >>
+    jobs:
+    - integration-tests-for-your-orb
+    - your-orb/job
+    - orb-tools/dev-promote-prod-from-commit-subject:
+        orb-name: parkmobileus/your-orb
+        add-pr-comment: false
+        publish-version-tag: true
+        ssh-fingerprints: ad:12:45
+        fail-if-semver-not-indicated: false
+        requires:
+        - integration-tests-for-your-orb
+        - your-orb/job
+        filters:
+          branches:
+            only: master
