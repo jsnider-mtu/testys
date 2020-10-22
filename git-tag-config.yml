@@ -1,0 +1,57 @@
+version: 2.1
+
+orb_promotion_filters: &orb_promotion_filters
+  branches:
+    ignore: /.*/
+  tags:
+    only: /^(major|minor|patch)-release-v\d+\.\d+\.\d+$/
+
+orbs:
+  orb-tools: circleci/orb-tools@10.0.1
+  your-orb: parkmobileus/your-orb@<< pipeline.parameters.dev-orb-version >>
+
+parameters:
+  run-integration-tests:
+    type: boolean
+    default: false
+  dev-orb-version:
+    type: string
+    default: "dev:alpha"
+
+jobs:
+  integration-test:
+    executor: orb-tools/ubuntu
+    steps:
+    - checkout
+    - your-orb/your-orb-command
+
+workflows:
+  lint_validate_publish-dev:
+    unless: << pipeline.parameters.run-integration-tests >>
+    jobs:
+    - orb-tools/lint
+    - orb-tools/publish-dev:
+        orb-name: parkmobileus/your-orb
+        requires:
+        - orb-tools/lint
+    - orb-tools/trigger-integration-tests-workflow:
+        name: trigger-integration-dev
+        requires:
+        - orb-tools/publish-dev
+  integration-tests:
+    when: << pipeline.parameters.run-integration-tests >>
+    jobs:
+    - integration-tests-for-your-orb
+    - your-orb/job
+  deploy:
+    unless: << pipeline.parameters.run-integration-tests >>
+    jobs:
+    - hold:
+        type: approval
+        filters: *orb_promotion_filters
+    - orb-tools/dev-promote-prod-from-git-tag:
+        orb-name: parkmobileus/your-orb
+        add-pr-comment: false
+        requires:
+        - hold
+        filters: *orb_promotion_filters
