@@ -6,6 +6,7 @@ parameters:
     default: false
   rollback_tag:
     type: string
+    default: ""
 
 jobs:
   nonprod:
