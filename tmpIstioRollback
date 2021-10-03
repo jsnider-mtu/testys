@@ -134,7 +134,7 @@ jobs:
         name: staging deployment
         shell: /bin/bash
         command: |
-          for i in `k get ns -l istio-injection=enabled | awk '{print $1}' | grep staging`; do k rollout restart deploy -n $i; sleep 4; done
+          for i in `kubectl get ns -l istio-injection=enabled | awk '{print $1}' | grep staging`; do kubectl rollout restart deploy -n $i; sleep 4; done
     - run:
         name: Ensure new pods are ready
         shell: /bin/bash
@@ -156,8 +156,7 @@ jobs:
         name: prod deployment
         shell: /bin/bash
         command: |
-          for i in `k get ns -l istio-injection=enabled | awk '{print $1}' | grep prod`; do k rollout restart deploy -n $i; sleep 4; done     
-        when: on_success
+          for i in `kubectl get ns -l istio-injection=enabled | awk '{print $1}' | grep prod`; do kubectl rollout restart deploy -n $i; sleep 4; done
 
   rollback:
     docker:
