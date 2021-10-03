@@ -1,0 +1,232 @@
+version: 2.1
+
+parameters:
+  rollback_job:
+    type: boolean
+    default: false
+  rollback_tag:
+    type: string
+
+jobs:
+  nonprod:
+    docker:
+    - image: alpine:latest
+    working_directory: ./profiles/
+    steps:
+    - checkout
+    - run:
+        name: install awscli nonprod
+        command: |
+          set +e
+          apk update
+          apk add py-pip bash curl yq
+          pip install awscli
+    - run:
+        name: install kubectl nonprod
+        shell: /bin/bash
+        command: |
+          curl -L "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" -o /usr/local/bin/kubectl
+    - run:
+        name: Populate access keys nonprod
+        shell: /bin/bash
+        command: echo 'export AWS_ACCESS_KEY_ID=${NONPROD_ACCESS_KEY_ID}' >> $BASH_ENV && echo 'export AWS_SECRET_ACCESS_KEY=${NONPROD_SECRET_ACCESS_KEY}' >> $BASH_ENV
+    - run:
+        name: Grab kubeconfig
+        shell: /bin/bash
+        command: aws eks --region us-east-1 update-kubeconfig --name cde-cluster
+    - run:
+        name: Grab current version
+        shell: /bin/bash
+        command: |
+          CUR_TAG=`kubectl get IstioOperator -n istio-system nonprod-istiocontrolplane -o yaml | yq e '.spec.tag' -`
+          echo "export CUR_TAG=${CUR_TAG}" >> $BASH_ENV
+    - run:
+        name: Grab new version
+        shell: /bin/bash
+        command: |
+          NEW_TAG=`yq e 'select(.kind == "IstioOperator")|.spec.tag' ~/project/profiles/nonprod.yaml`
+          echo "export NEW_TAG=${NEW_TAG}" >> $BASH_ENV
+    - run:
+        name: install istioctl nonprod
+        shell: /bin/bash
+        command: |
+          curl -sL https://istio.io/downloadIstioctl | ISTIO_VERSION=${NEW_TAG} sh -
+    - run:
+        name: add istio to PATH nonprod
+        shell: /bin/bash
+        command: |
+          echo "export PATH=$PATH:$HOME/.istioctl/bin" >> $BASH_ENV
+    - run:
+        name: init istio operator
+        shell: /bin/bash
+        command: |
+          istioctl operator init
+    - run:
+        name: kube apply nonprod
+        shell: /bin/bash
+        command: |
+          kubectl apply -f nonprod.yaml
+    - run:
+        name: nonprod deployment
+        shell: /bin/bash
+        command: |
+          for i in `kubectl get ns -l istio-injection=enabled | awk '{print $1}'`; do kubectl rollout restart deploy -n $i; sleep 4; done
+
+  staging-prod:
+    docker:
+    - image: alpine:latest
+    working_directory: ./profiles/
+    steps:
+    - checkout
+    - run:
+        name: install awscli prod
+        command: |
+          set +e
+          apk update
+          apk add py-pip bash curl yq
+          pip install awscli
+    - run:
+        name: install kubectl prod
+        command: |
+          curl -L "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" -o /usr/local/bin/kubectl
+    - run:
+        name: Populate access keys prod
+        shell: /bin/bash
+        command: echo 'export AWS_ACCESS_KEY_ID=${PROD_ACCESS_KEY_ID}' >> $BASH_ENV && echo 'export AWS_SECRET_ACCESS_KEY=${PROD_SECRET_ACCESS_KEY}' >> $BASH_ENV
+    - run:
+        name: Grab kubeconfig
+        shell: /bin/bash
+        command: aws eks --region us-east-1 update-kubeconfig --name cde-cluster
+    - run:
+        name: Grab current version
+        shell: /bin/bash
+        command: |
+          CUR_TAG=`kubectl get IstioOperator -n istio-system production-istiocontrolplane -o yaml | yq e '.spec.tag' -`
+          echo "export CUR_TAG=${CUR_TAG}" >> $BASH_ENV
+    - run:
+        name: Grab new version
+        shell: /bin/bash
+        command: |
+          NEW_TAG=`yq e 'select(.kind == "IstioOperator")|.spec.tag' ~/project/profiles/production.yaml`
+          echo "export NEW_TAG=${NEW_TAG}" >> $BASH_ENV
+    - run:
+        name: install istioctl prod
+        shell: /bin/bash
+        command: |
+          curl -sL https://istio.io/downloadIstioctl | ISTIO_VERSION=${NEW_TAG} sh -
+    - run:
+        name: add istio to PATH prod
+        shell: /bin/bash
+        command: |
+          echo "export PATH=$PATH:$HOME/.istioctl/bin" >> $BASH_ENV
+    - run:
+        name: init istio operator prod
+        shell: /bin/bash
+        command: |
+          istioctl operator init
+    - run:
+        name: kube apply production
+        shell: /bin/bash
+        command: |
+          kubectl apply -f production.yaml
+    - run:
+        name: staging deployment
+        shell: /bin/bash
+        command: |
+          for i in `k get ns -l istio-injection=enabled | awk '{print $1}' | grep staging`; do k rollout restart deploy -n $i; sleep 4; done
+    - run:
+        name: Ensure new pods are ready
+        shell: /bin/bash
+        command: |
+          kubectl rollout status deploy/locations -n locations-staging
+    - run:
+        name: Test with curl
+        shell: /bin/bash
+        command: curl -f -o /dev/null "https://api-staging.parkmobile.io/api/locations/v1/pins?topLeftLatitude=33.767007781386431&includeAvailability=false&accountType=basic&sourceAppKey=us.parkmobile.ParkMobile&topLeftLongitude=-84.46887507181707&bottomRightLongitude=-84.40450204955461&bottomRightLatitude=33.6719149935587"
+    - run:
+        name: Initiate rollback
+        shell: /bin/bash
+        command: |
+          curl -L -X POST -H 'Content-Type: application/json' \
+          -u "${CIRCLE_TOKEN}:" -d "{\"branch\": \"${CIRCLE_BRANCH}\", \"parameters\": {\"rollback_job\": true, \"rollback_tag\": \"${CUR_TAG}\"}}" \
+          https://circleci.com/api/v2/project/bb/${CIRCLE_PROJECT_USERNAME}/${CIRCLE_PROJECT_REPONAME}/pipeline
+        when: on_fail
+    - run:
+        name: prod deployment
+        shell: /bin/bash
+        command: |
+          for i in `k get ns -l istio-injection=enabled | awk '{print $1}' | grep prod`; do k rollout restart deploy -n $i; sleep 4; done     
+        when: on_success
+
+  rollback:
+    docker:
+    - image: alpine:latest
+    working_directory: ./profiles/
+    steps:
+    - checkout
+    - run:
+        name: install awscli rollback
+        command: |
+          set +e
+          apk update
+          apk add py-pip bash curl yq
+    - run:
+        name: install kubectl rollback
+        command: |
+          curl -L "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" -o /usr/local/bin/kubectl
+    - run:
+        name: Populate access keys rollback
+        shell: /bin/bash
+        command: echo 'export AWS_ACCESS_KEY_ID=${PROD_ACCESS_KEY_ID}' >> $BASH_ENV && echo 'export AWS_SECRET_ACCESS_KEY=${PROD_SECRET_ACCESS_KEY}' >> $BASH_ENV
+    - run:
+        name: Grab kubeconfig
+        shell: /bin/bash
+        command: aws eks --region us-east-1 update-kubeconfig --name cde-cluster
+    - run:
+        name: install istioctl rollback
+        shell: /bin/bash
+        command: |
+          curl -sL https://istio.io/downloadIstioctl | ISTIO_VERSION=<< pipeline.parameters.rollback_tag >> sh -
+    - run:
+        name: add istio to PATH rollback
+        shell: /bin/bash
+        command: |
+          echo "export PATH=$PATH:$HOME/.istioctl/bin" >> $BASH_ENV
+    - run:
+        name: init istio operator rollback
+        shell: /bin/bash
+        command: |
+          istioctl operator init --force
+    - run:
+        name: kube apply
+        shell: /bin/bash
+        command: |
+          yq e -i ".spec.tag = \"<< pipeline.parameters.rollback_tag >>\"" production.yaml
+          kubectl apply -f production.yaml
+    - run:
+        name: staging rollout
+        shell: /bin/bash
+        command: |
+          for i in `kubectl get ns -l istio-injection=enabled | awk '${print $1}' | grep staging`; do kubectl rollout restart deploy -n $i; sleep 4; done
+
+workflows:
+  istio_workflow:
+    when:
+      not: << pipeline.parameters.rollback_job >>
+    jobs:
+    - nonprod:
+        context: SRE
+        filters:
+          branches:
+            only: master
+    - staging-prod:
+        context: SRE
+        requires: nonprod
+        filters:
+          branches:
+            only: master
+  rollback_workflow:
+    when: << pipeline.parameters.rollback_job >>
+    jobs:
+    - rollback:
+        context: SRE
