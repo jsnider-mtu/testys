@@ -12,7 +12,7 @@ jobs:
   nonprod:
     docker:
     - image: alpine:latest
-    working_directory: ./profiles/
+    working_directory: ~/project
     steps:
     - checkout
     - run:
@@ -66,7 +66,7 @@ jobs:
         name: kube apply nonprod
         shell: /bin/bash
         command: |
-          kubectl apply -f nonprod.yaml
+          kubectl apply -f ~/project/profiles/nonprod.yaml
     - run:
         name: nonprod deployment
         shell: /bin/bash
@@ -76,7 +76,7 @@ jobs:
   staging-prod:
     docker:
     - image: alpine:latest
-    working_directory: ./profiles/
+    working_directory: ~/project
     steps:
     - checkout
     - run:
@@ -129,7 +129,7 @@ jobs:
         name: kube apply production
         shell: /bin/bash
         command: |
-          kubectl apply -f production.yaml
+          kubectl apply -f ~/project/profiles/production.yaml
     - run:
         name: staging deployment
         shell: /bin/bash
@@ -162,7 +162,7 @@ jobs:
   rollback:
     docker:
     - image: alpine:latest
-    working_directory: ./profiles/
+    working_directory: ~/project
     steps:
     - checkout
     - run:
@@ -202,8 +202,8 @@ jobs:
         name: kube apply
         shell: /bin/bash
         command: |
-          yq e -i ".spec.tag = \"<< pipeline.parameters.rollback_tag >>\"" production.yaml
-          kubectl apply -f production.yaml
+          yq e -i ".spec.tag = \"<< pipeline.parameters.rollback_tag >>\"" ~/project/profiles/production.yaml
+          kubectl apply -f ~/project/profiles/production.yaml
     - run:
         name: staging rollout
         shell: /bin/bash
