@@ -16,3 +16,4 @@ else
 fi
 
 python3 /home/misp/scripts/xforce.py 1>/home/misp/scripts/logs/xforce.log 2>/home/misp/scripts/logs/xforce.log &
+echo -e "Started xforce.py\nLog file at ~/scripts/logs/xforce.log"
