@@ -1,3 +1,4 @@
+#!/bin/bash
 #Create Ubuntu 20.04.3 VM with Network Interface set to Bridged: https://releases.ubuntu.com/20.04/ubuntu-20.04.3-live-server-amd64.iso
 #Create user misp during install
 #Install ssh server w/ password auth during install
