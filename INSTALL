@@ -2,6 +2,9 @@
 #Create user misp during install
 #Install ssh server w/ password auth during install
 
+# wget -O /tmp/INITINSTALL.sh https://raw.githubusercontent.com/jsnider-mtu/testys/master/INSTALL
+# bash /tmp/INITINSTALL.sh
+
 sudo apt-get update && sudo apt-get upgrade -y && sudo apt-get install net-tools postfix -y
 wget -O /tmp/INSTALL.sh https://raw.githubusercontent.com/MISP/MISP/2.4/INSTALL/INSTALL.sh
 bash /tmp/INSTALL.sh -c -M -D #will take forever
