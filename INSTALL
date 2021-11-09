@@ -1,16 +1,18 @@
-Create Ubuntu 20.04.3 VM with Network Interface set to Bridged: https://releases.ubuntu.com/20.04/ubuntu-20.04.3-live-server-amd64.iso
-Create user misp during install
-Install ssh server w/ password auth during install
+#Create Ubuntu 20.04.3 VM with Network Interface set to Bridged: https://releases.ubuntu.com/20.04/ubuntu-20.04.3-live-server-amd64.iso
+#Create user misp during install
+#Install ssh server w/ password auth during install
+
 sudo apt-get update && sudo apt-get upgrade -y && sudo apt-get install net-tools postfix -y
 wget -O /tmp/INSTALL.sh https://raw.githubusercontent.com/MISP/MISP/2.4/INSTALL/INSTALL.sh
 bash /tmp/INSTALL.sh -c -M -D #will take forever
+
 pip3 install pymisp
 mkdir -p /home/misp/scripts/logs
 wget -O /home/misp/scripts/xforce.py https://raw.githubusercontent.com/jsnider-mtu/testys/master/xforce.py
 wget -O /home/misp/scripts/start.sh https://raw.githubusercontent.com/jsnider-mtu/testys/master/start.sh
 chmod +x /home/misp/scripts/*
 
-sudo vim /etc/rc.local #Put line below BEFORE exit 0
-sudo -u www-data /var/www/MISP/app/Console/cake Baseurl https://$(ip a show dev enp0s3|grep 'inet '|awk '{print $2}'|cut -d/ -f1)
+sudo sed -i "s,^exit 0$,sudo -u www-data /var/www/MISP/app/Console/cake Baseurl https://\$(ip a show dev enp0s3|grep 'inet '|awk '{print $2}'|cut -d/ -f1)," /etc/rc.local
+echo 'exit 0' | sudo tee -a /etc/rc.local
 
 sudo poweroff
