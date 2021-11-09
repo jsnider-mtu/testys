@@ -15,4 +15,4 @@ else
   echo "Apipass: $XFORCE_API_PASS" >> /home/misp/XFORCE-authkey.txt
 fi
 
-/home/misp/scripts/xforce.py &
+python3 /home/misp/scripts/xforce.py &
