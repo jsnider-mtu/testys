@@ -8,7 +8,7 @@
 
 sudo apt-get update && sudo apt-get upgrade -y && sudo apt-get install net-tools postfix -y
 wget -O /tmp/INSTALL.sh https://raw.githubusercontent.com/MISP/MISP/2.4/INSTALL/INSTALL.sh
-bash /tmp/INSTALL.sh -c -M -D
+bash /tmp/INSTALL.sh -c -M -D | sudo tee -a /var/log/MISP-INSTALL.log
 
 pip3 install pymisp
 mkdir -p /home/misp/scripts/logs
