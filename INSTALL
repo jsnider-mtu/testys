@@ -10,7 +10,7 @@ echo 'net.ipv6.conf.all.disable_ipv6 = 1' | sudo tee -a /etc/sysctl.conf
 echo 'net.ipv6.conf.default.disable_ipv6 = 1' | sudo tee -a /etc/sysctl.conf
 sudo sysctl -p
 
-sudo apt-get update && sudo apt-get upgrade -y && sudo apt-get install net-tools postfix -y
+sudo apt-get update && sudo apt-get upgrade -y && sudo apt-get install net-tools -y
 wget -O /tmp/INSTALL.sh https://raw.githubusercontent.com/MISP/MISP/2.4/INSTALL/INSTALL.sh
 bash /tmp/INSTALL.sh -c -M -D
 
