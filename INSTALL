@@ -23,4 +23,3 @@ chmod +x /home/misp/scripts/*
 sudo sed -i "s,^exit 0$,sudo -u www-data /var/www/MISP/app/Console/cake Baseurl https://\$(ip a show dev enp0s3|grep 'inet '|awk '{print $2}'|cut -d/ -f1)," /etc/rc.local
 echo 'exit 0' | sudo tee -a /etc/rc.local
 
-sudo poweroff
