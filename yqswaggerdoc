@@ -1,1 +1,5 @@
 yq e '.services[] | select(.swaggerDoc) | { .name + ".swaggerDoc": .swaggerDoc }' testchart/values.yaml
+if [ ! -z "$TESTSTR" ]; then
+  echo "    setFile:" >> dev-helmsman.yaml
+  echo "$TESTSTR"|sed 's/^/      /' >> dev-helmsman.yaml
+fi
