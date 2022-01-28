@@ -1,0 +1,1 @@
+yq e '.services[] | select(.swaggerDoc) | { .name + ".swaggerDoc": .swaggerDoc }' testchart/values.yaml
