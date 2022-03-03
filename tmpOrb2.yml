@@ -1,0 +1,184 @@
+# Currently only supports one Squad/Team Responsible
+# Would be cool to allow templating of the slack messages
+# TODO: Finish parameterizing the custom fields
+version: 2.1
+description: "Create CNG ticket from merged PR"
+
+orbs:
+  slack: circleci/slack@3.4.2
+
+commands:
+  create_ticket:
+    description: "Pull data from PR then create CNG ticket"
+    parameters:
+      priority:
+        type: enum
+        description: "Priority level from 4 to 1"
+        enum: ["1", "2", "3", "4"]
+        default: "4"
+    steps:
+    - run:
+        name: Get PR info from bitbucket
+        command: |
+          PR_URL=`curl -fsSL -u "${SRE_BOT}" -H "Accept: application/json" https://api.bitbucket.org/2.0/repositories/${CIRCLE_PROJECT_USERNAME}/${CIRCLE_PROJECT_REPONAME}/commit/${CIRCLE_SHA1}/pullrequests | jq '.values[0].links.self.href' | tr -d '"'`
+          if [[ "$PR_URL" != "null" ]]; then
+            curl -fsSL -u "${SRE_BOT}" -H "Accept: applicatoin/json" $PR_URL > pr.json
+            echo "export TITLE=$(jq '.rendered.title.raw' pr.json)" >> $BASH_ENV
+            echo "export DESCRIPTION=$(jq '.rendered.description.raw' pr.json)" >> $BASH_ENV
+            echo "export PR_LINK=$(jq '.links.html.href' pr.json)" >> $BASH_ENV
+          else
+            echo "No PR URL found; skipping"
+            echo "export NO_PR=true" >> $BASH_ENV
+          fi
+    - run:
+        name: Create CNG ticket
+        command: |
+          if [[ $NO_PR == "true" ]]; then
+            echo "Not a PR merge; skipping"
+            echo "NO_PR" > /tmp/no_pr
+            exit 0
+          fi
+          cat \<<EOF >cng-ticket.json
+          {
+            "fields": {
+              "summary": "${TITLE}",
+              "issuetype": {
+                "id": "10203"
+              },
+              "description": {
+                "type": "doc",
+                "version": 1,
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "text": "${DESCRIPTION}",
+                        "type": "text"
+                      },
+                      {
+                        "text": "\nPull Request: ${PR_LINK}",
+                        "type": "text"
+                      }
+                    ]
+                  }
+                ]
+              },
+              "project": {
+                "id": "15664"
+              },
+              "reporter": {
+                "id": "5d0bdbdc77d0d20c2f5757ae"
+              },
+              "priority": {
+                "id": "<< parameters.priority >>"
+              },
+              "customfield_14192": [
+                {
+                  "id": "13602"
+                }
+              ],
+              "customfield_14179": {
+                "id": "13586"
+              },
+              "customfield_13401": {
+                "id": "13106"
+              },
+              "assignee": {
+                "id": "5d0bdbdc77d0d20c2f5757ae"
+              }
+            }
+          }
+          EOF
+          TICKET_KEY=$(curl -fsSL -u "${JIRA_BOT}" -H "Accept: application/json" -H "Content-Type: application/json" -X POST --data "@cng-ticket.json" https://parkmobileus.atlassian.net/rest/api/3/issue | jq '.key' | tr -d '"')
+          echo "$TICKET_KEY" > /tmp/ticket_key
+          echo "$TITLE" > /tmp/title
+          if [[ ! -e /tmp/no_pr ]]; then
+            touch /tmp/no_pr
+          fi
+    - persist_to_workspace:
+        root: /tmp
+        paths:
+        - no_pr
+        - title
+        - ticket_key
+
+  slack_open:
+    description: "Send a Slack message to #alerts-itcm about work starting"
+    parameters:
+      team:
+        type: string
+        description: "Team name"
+      channel:
+        type: string
+        description: "Slack channel (no # in front) (default: alerts-itcm)"
+        default: alerts-itcm
+    steps:
+    - attach_workspace:
+        at: /tmp
+    - run:
+        name: Set variables
+        command: |
+          echo "export TITLE=\"$(cat /tmp/title)\"" >> $BASH_ENV
+          echo "export TICKET_KEY=$(cat /tmp/ticket_key)" >> $BASH_ENV
+          if [[ "$(cat /tmp/no_pr)" == "NO_PR" ]]; then
+            echo "Not a PR merge, sending message to empty channel"
+            echo "export CHANNEL=trash-bin" >> $BASH_ENV
+          else
+            echo "export CHANNEL=<< parameters.channel >>" >> $BASH_ENV
+          fi
+    - slack/notify:
+        channel: ${CHANNEL}
+        message: << parameters.team >> Team - ${TITLE}\nhttps://parkmobileus.atlassian.net/browse/${TICKET_KEY}
+    - run:
+        name: Save team name and channel
+        command: |
+          echo "<< parameters.team >>" > /tmp/team
+          echo "${CHANNEL}" > /tmp/channel
+    - persist_to_workspace:
+        root: /tmp
+        paths:
+        - team
+        - channel
+
+  close_ticket:
+    description: "Close the previously opened Jira ticket"
+    steps:
+    - attach_workspace:
+        at: /tmp
+    - run:
+        name: Set variables
+        command: |
+          echo "export TICKET_KEY=$(cat /tmp/ticket_key)" >> $BASH_ENV
+    - run:
+        name: Close ticket
+        command: |
+          if [[ -z $TICKET_KEY ]]; then
+            echo "No ticket found; skipping"
+            exit 0
+          fi
+          cat \<<EOF >cng-ticket-close.json
+          {
+            "transition": {
+              "id": "61",
+              "looped": false
+            }
+          }
+          EOF
+          curl -fsSL -u "${JIRA_BOT}" -H "Accept: application/json" -H "Content-Type: application/json" -X POST --data "@cng-ticket-close.json" https://parkmobileus.atlassian.net/rest/api/3/issue/${TICKET_KEY}/transitions
+
+  slack_close:
+    description: "Send a Slack message to #alerts-itcm about work ending"
+    steps:
+    - attach_workspace:
+        at: /tmp
+    - run:
+        name: Set variables
+        command: |
+          echo "export TITLE=\"$(cat /tmp/title)\"" >> $BASH_ENV
+          echo "export TICKET_KEY=$(cat /tmp/ticket_key)" >> $BASH_ENV
+          echo "export TEAM=\"$(cat /tmp/team)\"" >> $BASH_ENV
+          echo "export CHANNEL=$(cat /tmp/channel)" >> $BASH_ENV
+    - slack/notify:
+        channel: ${CHANNEL}
+        message: ${TEAM} Team - ${TITLE} COMPLETED :party-parrot:\nhttps://parkmobileus.atlassian.net/browse/${TICKET_KEY}
