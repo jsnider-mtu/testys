@@ -240,3 +240,67 @@ examples:
           - helmsman/deployToProd
           - end
 
+  conditional-workflow:
+    description: "Example of a workflow that only triggers ticket creation on merge commits"
+    usage:
+      version: 2.1
+      orbs:
+        cng: parkmobileus/autocng@x.y.z
+        helmsman: parkmobileus/helmsman@3
+      parameters:
+        release:
+          type: boolean
+          default: false
+      jobs:
+        test:
+          docker:
+          - image: <docker image>
+          resource_class: small
+          steps:
+          - run:
+              name: Test
+              command: go test
+        trigger-release:
+          docker:
+          - image: <docker image>
+          resource_class: small
+          steps:
+          - run:
+              name: Find PR
+              command: |
+                PR_URL=`curl -fsSL -u "${SRE_BOT}" -H "Accept: application/json" https://api.bitbucket.org/2.0/repositories/${CIRCLE_PROJECT_USERNAME}/${CIRCLE_PROJECT_REPONAME}/commit/${CIRCLE_SHA1}/pullrequests | jq '.values[0].links.self.href' | tr -d '"'`
+                if [[ "$PR_URL" != "null" ]]; then
+                  curl -fsSL -H "Circle-Token: ${CIRCLE_TOKEN}" -H "Content-Type: applicatoin/json" -X POST --data "{\"branch\":\"${CIRCLE_BRANCH}\",\"parameters\":{\"release\":true}}" https://circleci.com/api/v2/project/bb/${CIRCLE_PROJECT_USERNAME}/${CIRCLE_PROJECT_REPONAME}/pipeline
+                else
+                  echo "Not a merge commit"
+                fi
+        start:
+          docker:
+          - image: <docker image>
+          resource_class: small
+          steps:
+          - cng/create_ticket:
+              priority: "1"
+          - cng/slack_open:
+              team: Integrations
+        end:
+          docker:
+          - image: <docker image>
+          resource_class: small
+          steps:
+          - cng/close_ticket
+          - cng/slack_close
+      workflows:
+        no-release:
+          when: 
+            not: << pipeline.parameters.release >>
+          jobs:
+          - test
+          - trigger-release
+        release:
+          when: << pipeline.parameters.release >>
+          jobs:
+          - start
+          - helmsman/deployToProd
+          - end
+
