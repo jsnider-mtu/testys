@@ -1,6 +1,7 @@
 # Currently only supports one Squad/Team Responsible
 # Would be cool to allow templating of the slack messages
 # TODO: Finish parameterizing the custom fields
+# TODO: Usage section explaining best practice
 version: 2.1
 description: "Create CNG ticket from merged PR"
 
