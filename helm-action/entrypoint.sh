@@ -62,5 +62,10 @@ while [[ $# -gt 0 ]]; do
       shift
       shift
       ;;
+    *)
+      echo "$1 is an unexpected argument"
+      shift
+      ;;
   esac
 done
+
