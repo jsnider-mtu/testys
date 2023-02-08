@@ -47,15 +47,15 @@ runs:
   using: 'docker'
   image: 'Dockerfile'
   args:
-    - --east-values-file=${{ inputs.path-to-values-file }}
-    - --west-values-file=${{ inputs.path-to-west-values-file }}
-    - --helm-options="${{ inputs.helm-options }}"
-    - --aws-key=${{ inputs.aws-key }}
-    - --aws-secret=${{ inputs.aws-secret }}
-    - --release-name=${{ inputs.release-name }}
-    - --namespace=${{ inputs.namespace }}
-    - --chart-path=${{ inputs.chart-path }}
-    - --update-east-tag=${{ inputs.update-east-tag }}
-    - --update-west-tag=${{ inputs.update-west-tag }}
-    - --east-region=${{ inputs.east-region }}
-    - --west-region=${{ inputs.west-region }}
+    - --east-values-file ${{ inputs.path-to-values-file }}
+    - --west-values-file ${{ inputs.path-to-west-values-file }}
+    - --helm-options "${{ inputs.helm-options }}"
+    - --aws-key ${{ inputs.aws-key }}
+    - --aws-secret ${{ inputs.aws-secret }}
+    - --release-name ${{ inputs.release-name }}
+    - --namespace ${{ inputs.namespace }}
+    - --chart-path ${{ inputs.chart-path }}
+    - --update-east-tag ${{ inputs.update-east-tag }}
+    - --update-west-tag ${{ inputs.update-west-tag }}
+    - --east-region ${{ inputs.east-region }}
+    - --west-region ${{ inputs.west-region }}
