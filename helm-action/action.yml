@@ -1,0 +1,61 @@
+name: 'Helm Diff and Apply'
+description: 'Creates a diff of helm upgrade (or install) and then performs the upgrade (or install)'
+inputs:
+  path-to-values-file:
+    description: 'Path to values file for the east region'
+    required: true
+    default: 'valuesFiles/values.yaml'
+  path-to-west-values-file:
+    description: 'Path to values file for the west region'
+    required: true
+    default: 'valuesFiles/values.yaml'
+  helm-options:
+    description: 'Options to be passed to the helm commands'
+    default: 'no-helm-options'
+  aws-key:
+    description: 'AWS Access Key ID used to get current kubeconfig'
+    required: true
+  aws-secret:
+    description: 'AWS Secret Access Key used to get current kubeconfig'
+    required: true
+  release-name:
+    description: 'Name of the helm release'
+    required: true
+  namespace:
+    description: 'Namespace where the helm release lives'
+    required: true
+  chart-path:
+    description: 'Path to the helm chart'
+    default: '.'
+  update-east-tag:
+    type: boolean
+    description: 'Whether or not to automagically handle updating the docker image and helm chart version (in the east)'
+    default: true
+  update-west-tag:
+    type: boolean
+    description: 'Whether or not to automagically handle updating the docker image and helm chart version (in the west)'
+    default: true
+  eastRegion:
+    type: boolean
+    description: 'Deploy to us-east-1'
+    default: true
+  westRegion:
+    type: boolean
+    description: 'Deploy to us-west-2'
+    default: false
+runs:
+  using: 'docker'
+  image: 'Dockerfile'
+  args:
+    - --east-values-file=${{ inputs.path-to-values-file }}
+    - --west-values-file=${{ inputs.path-to-west-values-file }}
+    - --helm-options="${{ inputs.helm-options }}"
+    - --aws-key=${{ inputs.aws-key }}
+    - --aws-secret=${{ inputs.aws-secret }}
+    - --release-name=${{ inputs.release-name }}
+    - --namespace=${{ inputs.namespace }}
+    - --chart-path=${{ inputs.chart-path }}
+    - --update-east-tag=${{ inputs.update-east-tag }}
+    - --update-west-tag=${{ inputs.update-west-tag }}
+    - --east-region=${{ inputs.east-region }}
+    - --west-region=${{ inputs.west-region }}
