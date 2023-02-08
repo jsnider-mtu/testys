@@ -11,7 +11,7 @@ inputs:
     default: 'valuesFiles/values.yaml'
   helm-options:
     description: 'Options to be passed to the helm commands'
-    default: 'no-helm-options'
+    default: '--wait --timeout 300'
   aws-key:
     description: 'AWS Access Key ID used to get current kubeconfig'
     required: true
