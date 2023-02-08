@@ -1,2 +1,66 @@
-#!/bin/bash -eo pipefail
+#!/bin/bash
 
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --east-values-file)
+      EASTVALFILE="$2"
+      shift
+      shift
+      ;;
+    --west-values-file)
+      WESTVALFILE="$2"
+      shift
+      shift
+      ;;
+    --helm-options)
+      HELMOPT="$2"
+      shift
+      shift
+      ;;
+    --aws-key)
+      AWS_ACCESS_KEY_ID="$2"
+      shift
+      shift
+      ;;
+    --aws-secret)
+      AWS_SECRET_ACCESS_KEY="$2"
+      shift
+      shift
+      ;;
+    --release-name)
+      RELEASENAME="$2"
+      shift
+      shift
+      ;;
+    --namespace)
+      NAMESPACE="$2"
+      shift
+      shift
+      ;;
+    --chart-path)
+      CHARTPATH="$2"
+      shift
+      shift
+      ;;
+    --update-east-tag)
+      UPDATE_EAST_TAG="$2"
+      shift
+      shift
+      ;;
+    --update-west-tag)
+      UPDATE_WEST_TAG="$2"
+      shift
+      shift
+      ;;
+    --east-region)
+      EAST_REGION="$2"
+      shift
+      shift
+      ;;
+    --west-region)
+      WEST_REGION="$2"
+      shift
+      shift
+      ;;
+  esac
+done
