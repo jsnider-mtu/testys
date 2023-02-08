@@ -18,12 +18,12 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --aws-key)
-      export AWS_ACCESS_KEY_ID="$2"
+      export AWS_ACCESS_KEY="$2"
       shift
       shift
       ;;
     --aws-secret)
-      export AWS_SECRET_ACCESS_KEY="$2"
+      export AWS_SECRET_KEY="$2"
       shift
       shift
       ;;
@@ -69,4 +69,52 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-export TAG=$(yq e '.version' $CHARTPATH/Chart.yaml)
+export TAG="$(yq e '.version' $CHARTPATH/Chart.yaml)"
+if [[ ! -z $TAG ]]; then
+  echo "Chart version $TAG found in Chart.yaml"
+else
+  echo "Chart version not found; exiting"
+  exit 1
+fi
+
+echo -e "\nSetting up AWS keys"
+export AWS_ACCESS_KEY_ID="$AWS_ACCESS_KEY"
+export AWS_SECRET_ACCESS_KEY="$AWS_SECRET_KEY"
+
+if [[ $UPDATE_EAST_TAG == "true" ]]; then
+  echo -e "\nSetting image tag in east values file"
+  sed -i'' "s/tag: 0\.0\.1$/tag: ${TAG}/" $EASTVALFILE
+fi
+
+if [[ $UPDATE_WEST_TAG == "true" ]]; then
+  echo -e "\nSetting image tag in west values file"
+  sed -i'' "s/tag: 0\.0\.1$/tag: ${TAG}/" $WESTVALFILE
+fi
+
+echo -e "\nAdding repos for dependency charts"
+yq --indent 0 e '.dependencies | map(["helm", "repo", "add", .name, .repository] | join(" ")) | .[]' "$CHARTPATH/Chart.yaml" | sh --;
+
+echo -e "\nPulling dependency charts"
+helm dependency build $CHARTPATH
+
+if [[ $EAST_REGION == "true" ]]; then
+  echo -e "\nGrabbing the us-east-1 kubeconfig file"
+  if [[ $TEAM == "SRE" ]]; then
+    mkdir -p $HOME/.kube && aws secretsmanager --region us-east-1 get-secret-value --secret-id teleport-kubeconfig-sre --query 'SecretString' | tr -d '"'',''['']' | base64 -d > $HOME/.kube/config && chmod 700 $HOME/.kube/config
+  else
+    mkdir -p $HOME/.kube && aws secretsmanager --region us-east-1 get-secret-value --secret-id teleport-kubeconfig --query 'SecretString' | tr -d '"'',''['']' | base64 -d > $HOME/.kube/config && chmod 700 $HOME/.kube/config
+  fi
+  echo -e "\nHelm diff us-east-1"
+  helm diff upgrade --install $RELEASENAME $CHARTPATH -f $EASTVALFILE $HELMOPT -n $NAMESPACE
+fi
+
+if [[ $WEST_REGION == "true" ]]; then
+  echo -e "\nGrabbing the us-west-2 kubeconfig file"
+  if [[ $TEAM == "SRE" ]]; then
+    mkdir -p $HOME/.kube && aws secretsmanager --region us-west-2 get-secret-value --secret-id teleport-kubeconfig-sre --query 'SecretString' | tr -d '"'',''['']' | base64 -d > $HOME/.kube/config && chmod 700 $HOME/.kube/config
+  else
+    mkdir -p $HOME/.kube && aws secretsmanager --region us-west-2 get-secret-value --secret-id teleport-kubeconfig --query 'SecretString' | tr -d '"'',''['']' | base64 -d > $HOME/.kube/config && chmod 700 $HOME/.kube/config
+  fi
+  echo -e "\nHelm diff us-west-2"
+  helm diff upgrade --install $RELEASENAME $CHARTPATH -f $WESTVALFILE $HELMOPT -n $NAMESPACE
+fi
