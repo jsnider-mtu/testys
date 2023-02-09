@@ -1,0 +1,111 @@
+name: 'Helm Diff and Apply'
+description: 'Creates a diff of helm upgrade (or install) and then performs the upgrade (or install)'
+
+on:
+  workflow_call:
+    inputs:
+      path-to-values-file:
+        description: 'Path to values file for the east region'
+        required: true
+        default: 'valuesFiles/values.yaml'
+      path-to-west-values-file:
+        description: 'Path to values file for the west region'
+        required: true
+        default: 'valuesFiles/values.yaml'
+      helm-options:
+        description: 'Options to be passed to the helm commands'
+        default: '--wait --timeout 300'
+      release-name:
+        description: 'Name of the helm release'
+        required: true
+      namespace:
+        description: 'Namespace where the helm release lives'
+        required: true
+      chart-path:
+        description: 'Path to the helm chart'
+        default: '.'
+      update-east-tag:
+        type: boolean
+        description: 'Whether or not to automagically handle updating the docker image and helm chart version (in the east)'
+        default: true
+      update-west-tag:
+        type: boolean
+        description: 'Whether or not to automagically handle updating the docker image and helm chart version (in the west)'
+        default: true
+      eastRegion:
+        type: boolean
+        description: 'Deploy to us-east-1'
+        default: true
+      westRegion:
+        type: boolean
+        description: 'Deploy to us-west-2'
+        default: false
+    secrets:
+      aws-key:
+        description: 'AWS Access Key ID used to get current kubeconfig'
+        required: true
+      aws-secret:
+        description: 'AWS Secret Access Key used to get current kubeconfig'
+        required: true
+jobs:
+  helm_diff:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Install yq, awscli, kubectl, and helm
+      run: |
+        wget https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -O /usr/local/bin/yq && chmod +x /usr/local/bin/yq
+        wget https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip -O ./awscliv2.zip && unzip awscliv2.zip && sudo ./aws/install
+        curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl" && \
+        chmod +x kubectl && mv kubectl /usr/local/bin/kubectl
+        curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+    - name: Grab chart version from Chart.yaml
+      run: |
+        export TAG="$(yq e '.version' ${{ inputs.chart-path }}/Chart.yaml)"
+        if [[ ! -z $TAG ]]; then
+          echo "Chart version $TAG found in Chart.yaml"
+        else
+          echo "Chart version not found; exiting"
+          exit 1
+        fi
+    - name: Export AWS Keys
+      run: |
+        export AWS_ACCESS_KEY_ID=${{ secrets.aws-key }} && \
+        export AWS_SECRET_ACCESS_KEY=${{ secrets.aws-secret }}
+    - name: Replace 0.0.1 tag in east values file with current tag value
+      if: ${{ inputs.update-east-tag }}
+      run: |
+        sed -i'' "s/tag: 0\.0\.1$/tag: ${TAG}/" ${{ inputs.path-to-values-file }}
+    - name: Replace 0.0.1 tag in west values file with current tag value
+      if: ${{ inputs.update-west-tag }}
+      run: |
+        sed -i'' "s/tag: 0\.0\.1$/tag: ${TAG}/" ${{ inputs.path-to-west-values-file }}
+    - name: Add helm repos for dependency charts
+      run: |
+        yq --indent 0 e '.dependencies | map(["helm", "repo", "add", .name, .repository] | join(" ")) | .[]' "${{ inputs.chart-path }}/Chart.yaml" | sh --;
+    - name: Pull dependency charts
+      run: |
+        helm dependency build ${{ inputs.chart-path }}
+    - name: Grab the us-east-1 kubeconfig
+      if: ${{ inputs.eastRegion }}
+      run: |
+        if [[ $TEAM == "SRE" ]]; then
+          mkdir -p $HOME/.kube && aws secretsmanager --region us-east-1 get-secret-value --secret-id teleport-kubeconfig-sre --query 'SecretString' | tr -d '"'',''['']' | base64 -d > $HOME/.kube/config && chmod 700 $HOME/.kube/config
+        else
+          mkdir -p $HOME/.kube && aws secretsmanager --region us-east-1 get-secret-value --secret-id teleport-kubeconfig --query 'SecretString' | tr -d '"'',''['']' | base64 -d > $HOME/.kube/config && chmod 700 $HOME/.kube/config
+        fi
+    - name: Helm diff us-east-1
+      if: ${{ inputs.eastRegion }}
+      run: |
+        helm diff upgrade --install ${{ inputs.release-name }} ${{ inputs.chart-path }} -f ${{ inputs.path-to-values-file }} ${{ inputs.helm-options }} -n ${{ inputs.namespace }}
+    - name: Grab the us-west-2 kubeconfig
+      if: ${{ inputs.westRegion }}
+      run: |
+        if [[ $TEAM == "SRE" ]]; then
+          mkdir -p $HOME/.kube && aws secretsmanager --region us-west-2 get-secret-value --secret-id teleport-kubeconfig-sre --query 'SecretString' | tr -d '"'',''['']' | base64 -d > $HOME/.kube/config && chmod 700 $HOME/.kube/config
+        else
+          mkdir -p $HOME/.kube && aws secretsmanager --region us-west-2 get-secret-value --secret-id teleport-kubeconfig --query 'SecretString' | tr -d '"'',''['']' | base64 -d > $HOME/.kube/config && chmod 700 $HOME/.kube/config
+        fi
+    - name: Helm diff us-west-2
+      if: ${{ inputs.westRegion }}
+      run: |
+        helm diff upgrade --install ${{ inputs.release-name }} ${{ inputs.chart-path }} -f ${{ inputs.path-to-west-values-file }} ${{ inputs.helm-options }} -n ${{ inputs.namespace }}
